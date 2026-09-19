@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>نظرسنجی ارائه | کنگره ارتوپدی</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<style>
+  :root{
+    --navy:#0E2A3B;
+    --navy-2:#123549;
+    --gold:#C8922B;
+    --gold-light:#E8B85A;
+    --paper:#F7F4EE;
+    --ink:#182226;
+    --muted:#66767D;
+    --line:#DDD6C7;
+    --ok:#2E6E52;
+    --radius:4px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:'Vazirmatn',sans-serif;
+    min-height:100vh;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:520px;margin:0 auto;padding:0 0 60px;}
+  header.top{
+    background:var(--navy);
+    color:#fff;
+    padding:28px 20px 24px;
+    border-bottom:3px solid var(--gold);
+  }
+  header.top .eyebrow{font-size:13px;color:var(--gold-light);font-weight:600;margin:0 0 6px;}
+  header.top h1{font-size:20px;line-height:1.5;margin:0;font-weight:700;}
+  header.top .speaker{font-size:15px;color:#C7D4DA;margin-top:6px;}
+  main{padding:24px 18px 0;}
+  .intro{font-size:14px;color:var(--muted);line-height:1.9;margin-bottom:24px;}
+  .q{
+    background:#fff;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:18px 16px;
+    margin-bottom:14px;
+  }
+  .q h3{
+    font-size:15px;
+    font-weight:600;
+    margin:0 0 14px;
+    line-height:1.7;
+  }
+  .scale{
+    display:flex;
+    justify-content:space-between;
+    gap:6px;
+  }
+  .scale label{
+    flex:1;
+    text-align:center;
+  }
+  .scale input{
+    position:absolute;
+    opacity:0;
+    width:0;height:0;
+  }
+  .scale span{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:6px;
+    cursor:pointer;
+  }
+  .dot{
+    width:38px;height:38px;
+    border-radius:50%;
+    border:2px solid var(--line);
+    display:flex;align-items:center;justify-content:center;
+    font-weight:700;
+    font-size:14px;
+    color:var(--muted);
+    transition:all .15s ease;
+  }
+  .scale input:checked + span .dot{
+    background:var(--navy);
+    border-color:var(--navy);
+    color:#fff;
+  }
+  .scale .cap{font-size:11px;color:var(--muted);}
+  .legend{
+    display:flex;
+    justify-content:space-between;
+    font-size:11px;
+    color:var(--muted);
+    margin-top:10px;
+  }
+  textarea{
+    width:100%;
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:12px;
+    font-family:inherit;
+    font-size:14px;
+    resize:vertical;
+    min-height:90px;
+    background:#fff;
+  }
+  textarea:focus, .dot:focus-visible{outline:2px solid var(--gold);outline-offset:2px;}
+  button#submitBtn{
+    width:100%;
+    background:var(--navy);
+    color:#fff;
+    border:none;
+    border-radius:var(--radius);
+    padding:16px;
+    font-family:inherit;
+    font-size:16px;
+    font-weight:700;
+    cursor:pointer;
+    margin-top:6px;
+  }
+  button#submitBtn:disabled{opacity:.5;cursor:default;}
+  button#submitBtn:active{background:var(--navy-2);}
+  .state{
+    text-align:center;
+    padding:70px 24px;
+  }
+  .state h2{font-size:19px;margin:0 0 10px;}
+  .state p{color:var(--muted);font-size:14px;line-height:1.8;}
+  .check{
+    width:60px;height:60px;
+    border-radius:50%;
+    background:var(--ok);
+    color:#fff;
+    display:flex;align-items:center;justify-content:center;
+    font-size:30px;
+    margin:0 auto 18px;
+  }
+  .hidden{display:none !important;}
+  .err{color:#B3402C;font-size:13px;margin-top:10px;text-align:center;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <p class="eyebrow">نظرسنجی کیفیت ارائه</p>
+    <h1 id="sessionTitle">در حال بارگذاری…</h1>
+    <div class="speaker" id="sessionSpeaker"></div>
+  </header>
+
+  <main>
+    <form id="surveyForm" class="hidden">
+      <p class="intro">نظر شما درباره این ارائه، بدون ثبت نام یا اطلاعات شخصی، به بهبود کیفیت علمی کنگره کمک می‌کند. تکمیل کمتر از یک دقیقه زمان می‌برد.</p>
+
+      <div class="q">
+        <h3>۱. کیفیت علمی محتوای ارائه‌شده چگونه بود؟</h3>
+        <div class="scale" data-name="quality"></div>
+        <div class="legend"><span>ضعیف</span><span>عالی</span></div>
+      </div>
+
+      <div class="q">
+        <h3>۲. مطالب تا چه حد قابل استفاده در عمل بالینی روزمره است؟</h3>
+        <div class="scale" data-name="applicability"></div>
+        <div class="legend"><span>کم‌کاربرد</span><span>پرکاربرد</span></div>
+      </div>
+
+      <div class="q">
+        <h3>۳. کیفیت ارائه و اسلایدها را چطور ارزیابی می‌کنید؟</h3>
+        <div class="scale" data-name="presentation"></div>
+        <div class="legend"><span>ضعیف</span><span>عالی</span></div>
+      </div>
+
+      <div class="q">
+        <h3>۴. مدیریت زمان ارائه چگونه بود؟</h3>
+        <div class="scale" data-name="timing"></div>
+        <div class="legend"><span>ضعیف</span><span>عالی</span></div>
+      </div>
+
+      <div class="q">
+        <h3>۵. نظر یا پیشنهاد شما برای بهبود این ارائه (اختیاری)</h3>
+        <textarea id="suggestion" maxlength="400" placeholder="در صورت تمایل بنویسید…"></textarea>
+      </div>
+
+      <button id="submitBtn" type="submit">ثبت نظر</button>
+      <p class="err hidden" id="errMsg"></p>
+    </form>
+
+    <div id="doneState" class="state hidden">
+      <div class="check">✓</div>
+      <h2>نظر شما ثبت شد</h2>
+      <p>از وقتی که گذاشتید سپاسگزاریم.</p>
+    </div>
+
+    <div id="loadingState" class="state">
+      <p>در حال بارگذاری اطلاعات ارائه…</p>
+    </div>
+
+    <div id="notFoundState" class="state hidden">
+      <h2>ارائه پیدا نشد</h2>
+      <p>کد QR اسکن‌شده معتبر نیست یا این نظرسنجی هنوز فعال نشده است.</p>
+    </div>
+  </main>
+</div>
+
+<script>
+  // ===================== تنظیمات Firebase =====================
+  // این بخش را با اطلاعات پروژه Firebase خودتان جایگزین کنید
+  // (Firebase Console > Project Settings > SDK setup and configuration)
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwHshrueUdn_jFQVYdX_91-QRtc09Divk",
+    authDomain: "congress-survay.firebaseapp.com",
+    databaseURL: "https://congress-survay-default-rtdb.firebaseio.com",
+    projectId: "congress-survay",
+    storageBucket: "congress-survay.firebasestorage.app",
+    messagingSenderId: "499198284243",
+    appId: "1:499198284243:web:b34bf19d06d47680d39f26",
+    measurementId: "G-9PSHSKSDQT"
+  };
+  // ===============================================================
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const params = new URLSearchParams(location.search);
+  const sessionId = params.get('s');
+
+  const els = {
+    loading: document.getElementById('loadingState'),
+    notFound: document.getElementById('notFoundState'),
+    form: document.getElementById('surveyForm'),
+    done: document.getElementById('doneState'),
+    title: document.getElementById('sessionTitle'),
+    speaker: document.getElementById('sessionSpeaker'),
+    err: document.getElementById('errMsg'),
+    submitBtn: document.getElementById('submitBtn'),
+  };
+
+  const SCALE_QUESTIONS = ['quality','applicability','presentation','timing'];
+
+  function buildScale(container, name){
+    container.innerHTML = '';
+    for(let i=1;i<=5;i++){
+      const label = document.createElement('label');
+      label.innerHTML = `
+        <input type="radio" name="${name}" value="${i}" ${i===3?'':''}>
+        <span><span class="dot">${i}</span></span>
+      `;
+      container.appendChild(label);
+    }
+  }
+
+  document.querySelectorAll('.scale').forEach(el => buildScale(el, el.dataset.name));
+
+  function alreadySubmitted(id){
+    return localStorage.getItem('survey_done_' + id) === '1';
+  }
+  function markSubmitted(id){
+    localStorage.setItem('survey_done_' + id, '1');
+  }
+
+  if(!sessionId){
+    els.loading.classList.add('hidden');
+    els.notFound.classList.remove('hidden');
+  } else if(alreadySubmitted(sessionId)){
+    els.loading.classList.add('hidden');
+    els.done.classList.remove('hidden');
+  } else {
+    db.ref('sessions/' + sessionId).get().then(snap => {
+      els.loading.classList.add('hidden');
+      if(!snap.exists()){
+        els.notFound.classList.remove('hidden');
+        return;
+      }
+      const s = snap.val();
+      els.title.textContent = s.title || 'ارائه';
+      els.speaker.textContent = s.speaker ? ('ارائه‌دهنده: ' + s.speaker) : '';
+      els.form.classList.remove('hidden');
+    }).catch(() => {
+      els.loading.classList.add('hidden');
+      els.notFound.classList.remove('hidden');
+    });
+  }
+
+  els.form.addEventListener('submit', function(e){
+    e.preventDefault();
+    els.err.classList.add('hidden');
+
+    const answers = {};
+    for(const q of SCALE_QUESTIONS){
+      const checked = els.form.querySelector(`input[name="${q}"]:checked`);
+      if(!checked){
+        els.err.textContent = 'لطفاً به همه سؤال‌های امتیازی پاسخ دهید.';
+        els.err.classList.remove('hidden');
+        return;
+      }
+      answers[q] = Number(checked.value);
+    }
+    answers.suggestion = document.getElementById('suggestion').value.trim().slice(0,400);
+    answers.timestamp = firebase.database.ServerValue.TIMESTAMP;
+
+    els.submitBtn.disabled = true;
+    els.submitBtn.textContent = 'در حال ارسال…';
+
+    db.ref('responses/' + sessionId).push(answers)
+      .then(() => {
+        markSubmitted(sessionId);
+        els.form.classList.add('hidden');
+        els.done.classList.remove('hidden');
+      })
+      .catch(() => {
+        els.submitBtn.disabled = false;
+        els.submitBtn.textContent = 'ثبت نظر';
+        els.err.textContent = 'ارسال با خطا مواجه شد. لطفاً دوباره تلاش کنید.';
+        els.err.classList.remove('hidden');
+      });
+  });
+</script>
+</body>
+</html>

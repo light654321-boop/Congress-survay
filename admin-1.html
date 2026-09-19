@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>مدیریت نظرسنجی | کنگره ارتوپدی</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root{
+    --navy:#0E2A3B; --navy-2:#123549; --gold:#C8922B; --gold-light:#E8B85A;
+    --paper:#F7F4EE; --ink:#182226; --muted:#66767D; --line:#DDD6C7; --radius:4px;
+  }
+  *{box-sizing:border-box;}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:'Vazirmatn',sans-serif;}
+  header{background:var(--navy);color:#fff;padding:22px 28px;border-bottom:3px solid var(--gold);}
+  header h1{margin:0;font-size:19px;}
+  header p{margin:6px 0 0;font-size:13px;color:#C7D4DA;}
+  .wrap{max-width:920px;margin:0 auto;padding:28px 20px 80px;}
+  .panel{background:#fff;border:1px solid var(--line);border-radius:var(--radius);padding:22px;margin-bottom:22px;}
+  .panel h2{font-size:16px;margin:0 0 16px;}
+  .row{display:flex;gap:12px;flex-wrap:wrap;}
+  .field{flex:1;min-width:200px;}
+  label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px;}
+  input[type=text]{
+    width:100%;border:1px solid var(--line);border-radius:var(--radius);
+    padding:11px 12px;font-family:inherit;font-size:14px;background:#fbfaf7;
+  }
+  input[type=text]:focus{outline:2px solid var(--gold);outline-offset:1px;}
+  button.primary{
+    background:var(--navy);color:#fff;border:none;border-radius:var(--radius);
+    padding:12px 22px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;margin-top:14px;
+  }
+  button.primary:active{background:var(--navy-2);}
+  .sessions{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px;}
+  .card{border:1px solid var(--line);border-radius:var(--radius);padding:16px;background:#fff;text-align:center;}
+  .card h3{font-size:14px;margin:0 0 4px;line-height:1.6;}
+  .card .sp{font-size:12px;color:var(--muted);margin-bottom:12px;}
+  .card .qr{display:flex;justify-content:center;margin-bottom:10px;}
+  .card a.linkbtn{
+    display:block;font-size:12px;color:var(--navy);text-decoration:none;
+    border:1px solid var(--line);border-radius:var(--radius);padding:8px;margin-top:6px;
+  }
+  .card a.linkbtn:hover{background:var(--paper);}
+  .card .del{
+    font-size:11px;color:#B3402C;background:none;border:none;cursor:pointer;margin-top:8px;
+  }
+  .empty{color:var(--muted);font-size:14px;padding:20px;text-align:center;}
+  .note{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.8;}
+  .baseurl{background:#FBF3E2;border:1px solid var(--gold-light);border-radius:var(--radius);padding:14px 16px;margin-bottom:18px;font-size:13px;line-height:1.9;}
+  .baseurl code{background:#fff;padding:2px 6px;border-radius:3px;}
+  @media print{
+    header,.panel:first-of-type,.baseurl,.del,a.linkbtn{display:none;}
+    .sessions{grid-template-columns:repeat(2,1fr);}
+    .card{break-inside:avoid;border:1px solid #999;}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>پنل مدیریت نظرسنجی سخنرانی‌ها</h1>
+  <p>افزودن سخنرانی، ساخت QR اختصاصی و مشاهده لینک هر نظرسنجی</p>
+</header>
+
+<div class="wrap">
+  <div class="baseurl">
+    آدرس پایه فرم نظرسنجی (survey.html) را اینجا تنظیم کنید تا لینک‌ها و QRها درست ساخته شوند:<br>
+    <input type="text" id="baseUrl" placeholder="https://yourdomain.ir/survey.html" style="margin-top:8px;">
+  </div>
+
+  <div class="panel">
+    <h2>افزودن سخنرانی جدید</h2>
+    <div class="row">
+      <div class="field">
+        <label>عنوان ارائه</label>
+        <input type="text" id="titleInput" placeholder="مثلاً: آرتروپلاستی زانو در زانوی والگوس">
+      </div>
+      <div class="field">
+        <label>نام سخنران</label>
+        <input type="text" id="speakerInput" placeholder="مثلاً: دکتر …">
+      </div>
+    </div>
+    <button class="primary" id="addBtn">افزودن و ساخت QR</button>
+  </div>
+
+  <div class="panel">
+    <h2>لیست سخنرانی‌ها</h2>
+    <div id="sessionsGrid" class="sessions"></div>
+    <div id="emptyMsg" class="empty hidden">هنوز سخنرانی‌ای اضافه نشده است.</div>
+    <p class="note">هر QR را در اسلاید انتهایی سخنرانی مربوطه قرار دهید. برای چاپ همه کدها به‌صورت کارت، از Ctrl+P استفاده کنید.</p>
+  </div>
+</div>
+
+<script>
+  // ===================== تنظیمات Firebase =====================
+  const firebaseConfig = {
+    apiKey: "AIzaSyBwHshrueUdn_jFQVYdX_91-QRtc09Divk",
+    authDomain: "congress-survay.firebaseapp.com",
+    databaseURL: "https://congress-survay-default-rtdb.firebaseio.com",
+    projectId: "congress-survay",
+    storageBucket: "congress-survay.firebasestorage.app",
+    messagingSenderId: "499198284243",
+    appId: "1:499198284243:web:b34bf19d06d47680d39f26",
+    measurementId: "G-9PSHSKSDQT"
+  };
+  // ===============================================================
+
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  const grid = document.getElementById('sessionsGrid');
+  const emptyMsg = document.getElementById('emptyMsg');
+  const baseUrlInput = document.getElementById('baseUrl');
+
+  baseUrlInput.value = localStorage.getItem('survey_base_url') || '';
+  baseUrlInput.addEventListener('change', () => {
+    localStorage.setItem('survey_base_url', baseUrlInput.value.trim());
+    render(currentSessions);
+  });
+
+  document.getElementById('addBtn').addEventListener('click', () => {
+    const title = document.getElementById('titleInput').value.trim();
+    const speaker = document.getElementById('speakerInput').value.trim();
+    if(!title){ alert('لطفاً عنوان ارائه را وارد کنید.'); return; }
+    const ref = db.ref('sessions').push();
+    ref.set({
+      title, speaker,
+      createdAt: firebase.database.ServerValue.TIMESTAMP
+    }).then(() => {
+      document.getElementById('titleInput').value = '';
+      document.getElementById('speakerInput').value = '';
+    });
+  });
+
+  let currentSessions = [];
+
+  db.ref('sessions').on('value', snap => {
+    const val = snap.val() || {};
+    currentSessions = Object.entries(val)
+      .map(([id, s]) => ({ id, ...s }))
+      .sort((a,b) => (a.createdAt||0) - (b.createdAt||0));
+    render(currentSessions);
+  });
+
+  function render(sessions){
+    grid.innerHTML = '';
+    emptyMsg.classList.toggle('hidden', sessions.length > 0);
+    const base = baseUrlInput.value.trim() || 'survey.html';
+
+    sessions.forEach(s => {
+      const url = base + (base.includes('?') ? '&' : '?') + 's=' + s.id;
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `
+        <h3>${escapeHtml(s.title)}</h3>
+        <div class="sp">${escapeHtml(s.speaker || '')}</div>
+        <div class="qr" id="qr-${s.id}"></div>
+        <a class="linkbtn" href="${url}" target="_blank">مشاهده لینک نظرسنجی</a>
+        <button class="del" data-id="${s.id}">حذف این سخنرانی</button>
+      `;
+      grid.appendChild(card);
+      new QRCode(document.getElementById('qr-' + s.id), {
+        text: url, width: 140, height: 140,
+        colorDark: '#0E2A3B', colorLight: '#ffffff'
+      });
+    });
+
+    grid.querySelectorAll('.del').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if(confirm('این سخنرانی و QR آن حذف شود؟ (پاسخ‌های ثبت‌شده حذف نمی‌شوند)')){
+          db.ref('sessions/' + btn.dataset.id).remove();
+        }
+      });
+    });
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+  }
+</script>
+</body>
+</html>
