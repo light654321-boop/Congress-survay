@@ -71,7 +71,8 @@ export default function SurveyManagePage() {
   const [loadErr, setLoadErr] = useState('');
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState(null); // {type:'ok'|'err', text}
+  const [msg, setMsg] = useState(null); // پیام بخش ۲ (QR، لینک، حذف…)
+  const [impMsg, setImpMsg] = useState(null); // پیام بارگذاری گروهی
   const [qr, setQr] = useState({}); // { [sessionId]: dataUrl }
   const emptyForm = { panel: '', speaker: '', title: '', panel_en: '', speaker_en: '', title_en: '' };
   const [form, setForm] = useState(emptyForm);
@@ -101,7 +102,7 @@ export default function SurveyManagePage() {
     e.target.value = '';
     if (!f) return;
     if (/\.xlsx?$/i.test(f.name)) {
-      setMsg({
+      setImpMsg({
         type: 'err',
         text: 'فایل اکسل را مستقیم نمی‌توان خواند. یا در اکسل «Save As > CSV UTF-8» بگیرید، یا سلول‌های جدول را کپی کنید و در کادر بالا Paste کنید.',
       });
@@ -109,13 +110,13 @@ export default function SurveyManagePage() {
     }
     const t = await f.text();
     setText(t);
-    setMsg(null);
+    setImpMsg(null);
   }
 
   async function doImport() {
     if (parsed.rows.length === 0) return;
     setBusy(true);
-    setMsg(null);
+    setImpMsg(null);
     try {
       const cur = await loadStructure();
       const panelByKey = {};
@@ -208,7 +209,7 @@ export default function SurveyManagePage() {
         const { error } = await supabase.from('survey_sessions').insert(toInsert);
         if (error) throw error;
       }
-      setMsg({
+      setImpMsg({
         type: 'ok',
         text:
           `ثبت شد: ${toInsert.length} سخنرانی جدید، ${newNames.length} پنل جدید` +
@@ -219,7 +220,7 @@ export default function SurveyManagePage() {
       setText('');
       await refresh();
     } catch (e) {
-      setMsg({
+      setImpMsg({
         type: 'err',
         text:
           'ثبت ناموفق بود: ' +
@@ -633,74 +634,10 @@ export default function SurveyManagePage() {
           {oneMsg && <div className={'ad-msg ' + oneMsg.type}>{oneMsg.text}</div>}
         </section>
 
+
         <section className="ad-panel">
-          <h2>۲. بارگذاری گروهی (از اکسل) — برای تعداد زیاد</h2>
-          <p className="ad-note">
-            هر سطر یک سخنرانی است با سه ستون به ترتیب: <b>نام پنل | نام سخنران | عنوان سخنرانی</b>.
-            جدول را از اکسل کپی و اینجا Paste کنید، یا فایل CSV بدهید. ردیف عنوان ستون‌ها (که اولین خانه‌اش «پنل» است) اختیاری است.
-            می‌توانید هر زمان دوباره بارگذاری کنید؛ موارد تکراری نادیده گرفته می‌شوند.
-          </p>
-          <p className="ad-note">
-            برای گزارش PDF انگلیسی، سه ستون <b>اختیاری</b> دیگر هم اضافه کنید: <b>نام انگلیسی پنل | نام انگلیسی سخنران | عنوان انگلیسی سخنرانی</b>.
-            اگر خالی بماند، گزارش همان نام فارسی را چاپ می‌کند. می‌توانید بعداً با بارگذاری دوبارهٔ همان سطرها، نام‌های انگلیسی را تکمیل یا اصلاح کنید.
-          </p>
-          <textarea
-            value={text}
-            onChange={e => setText(e.target.value)}
-            placeholder={'پنل زانو\tدکتر الف\tعنوان سخنرانی اول\tKnee Panel\tDr. Alef\tFirst talk title\nپنل ستون فقرات\tدکتر ج\tعنوان سخنرانی دوم\tSpine Panel\tDr. Jim\tSecond talk title'}
-          />
-          <div className="ad-row">
-            <label className="ad-btn alt" style={{ cursor: 'pointer' }}>
-              انتخاب فایل CSV
-              <input type="file" accept=".csv,.tsv,.txt" onChange={onFile} style={{ display: 'none' }} />
-            </label>
-            <button className="ad-btn" disabled={busy || parsed.rows.length === 0} onClick={doImport}>
-              {busy ? 'در حال ثبت…' : `ثبت ${parsed.rows.length} سخنرانی در سیستم`}
-            </button>
-            {text && (
-              <button className="ad-btn alt" onClick={() => setText('')}>
-                پاک کردن کادر
-              </button>
-            )}
-          </div>
-
-          {parsed.bad.length > 0 && (
-            <div className="ad-msg err">
-              {parsed.bad.length} سطر ناقص (کمتر از سه ستون) نادیده گرفته می‌شود:
-              <br />
-              {parsed.bad.slice(0, 5).join(' ⟵ ')}
-            </div>
-          )}
-
-          {parsed.rows.length > 0 && (
-            <div className="ad-scroll" style={{ marginTop: 12, maxHeight: 260, overflowY: 'auto' }}>
-              <table>
-                <thead>
-                  <tr>
-                    <th>پنل</th>
-                    <th>سخنران</th>
-                    <th>عنوان سخنرانی</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {parsed.rows.slice(0, 50).map((r, i) => (
-                    <tr key={i}>
-                      <td>{r[0]}</td>
-                      <td>{r[1]}</td>
-                      <td>{r[2]}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-              {parsed.rows.length > 50 && <p className="ad-note">پیش‌نمایش ۵۰ سطر اول؛ همهٔ سطرها ثبت می‌شوند.</p>}
-            </div>
-          )}
-
+          <h2>۲. پنل‌ها، سخنرانی‌ها و QR</h2>
           {msg && <div className={'ad-msg ' + msg.type}>{msg.text}</div>}
-        </section>
-
-        <section className="ad-panel">
-          <h2>۳. پنل‌ها، سخنرانی‌ها و QR</h2>
           <p className="ad-note">
             برای هر سخنرانی یک QR جداگانه ساخته می‌شود؛ سخنران فقط همین QR را در آخرین اسلاید می‌گذارد. بعد از اسکن، نام سخنران و عنوان سخنرانی بالای فرم نمایش داده می‌شود. (کارت دارای نام و عنوان هم اختیاری است.)
             «بستن رأی‌گیری» پس از پایان جلسه از ثبت رأی جدید جلوگیری می‌کند و جلوی رأی‌دادن دیرهنگام یا ساختگی را می‌گیرد.
@@ -767,6 +704,72 @@ export default function SurveyManagePage() {
               ))}
             </div>
           ))}
+        </section>
+
+        <section className="ad-panel">
+          <h2>۳. بارگذاری گروهی (از اکسل) — برای تعداد زیاد</h2>
+          <p className="ad-note">
+            هر سطر یک سخنرانی است با سه ستون به ترتیب: <b>نام پنل | نام سخنران | عنوان سخنرانی</b>.
+            جدول را از اکسل کپی و اینجا Paste کنید، یا فایل CSV بدهید. ردیف عنوان ستون‌ها (که اولین خانه‌اش «پنل» است) اختیاری است.
+            می‌توانید هر زمان دوباره بارگذاری کنید؛ موارد تکراری نادیده گرفته می‌شوند.
+          </p>
+          <p className="ad-note">
+            برای گزارش PDF انگلیسی، سه ستون <b>اختیاری</b> دیگر هم اضافه کنید: <b>نام انگلیسی پنل | نام انگلیسی سخنران | عنوان انگلیسی سخنرانی</b>.
+            اگر خالی بماند، گزارش همان نام فارسی را چاپ می‌کند. می‌توانید بعداً با بارگذاری دوبارهٔ همان سطرها، نام‌های انگلیسی را تکمیل یا اصلاح کنید.
+          </p>
+          <textarea
+            value={text}
+            onChange={e => setText(e.target.value)}
+            placeholder={'پنل زانو\tدکتر الف\tعنوان سخنرانی اول\tKnee Panel\tDr. Alef\tFirst talk title\nپنل ستون فقرات\tدکتر ج\tعنوان سخنرانی دوم\tSpine Panel\tDr. Jim\tSecond talk title'}
+          />
+          <div className="ad-row">
+            <label className="ad-btn alt" style={{ cursor: 'pointer' }}>
+              انتخاب فایل CSV
+              <input type="file" accept=".csv,.tsv,.txt" onChange={onFile} style={{ display: 'none' }} />
+            </label>
+            <button className="ad-btn" disabled={busy || parsed.rows.length === 0} onClick={doImport}>
+              {busy ? 'در حال ثبت…' : `ثبت ${parsed.rows.length} سخنرانی در سیستم`}
+            </button>
+            {text && (
+              <button className="ad-btn alt" onClick={() => setText('')}>
+                پاک کردن کادر
+              </button>
+            )}
+          </div>
+
+          {parsed.bad.length > 0 && (
+            <div className="ad-msg err">
+              {parsed.bad.length} سطر ناقص (کمتر از سه ستون) نادیده گرفته می‌شود:
+              <br />
+              {parsed.bad.slice(0, 5).join(' ⟵ ')}
+            </div>
+          )}
+
+          {parsed.rows.length > 0 && (
+            <div className="ad-scroll" style={{ marginTop: 12, maxHeight: 260, overflowY: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>پنل</th>
+                    <th>سخنران</th>
+                    <th>عنوان سخنرانی</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {parsed.rows.slice(0, 50).map((r, i) => (
+                    <tr key={i}>
+                      <td>{r[0]}</td>
+                      <td>{r[1]}</td>
+                      <td>{r[2]}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {parsed.rows.length > 50 && <p className="ad-note">پیش‌نمایش ۵۰ سطر اول؛ همهٔ سطرها ثبت می‌شوند.</p>}
+            </div>
+          )}
+
+          {impMsg && <div className={'ad-msg ' + impMsg.type}>{impMsg.text}</div>}
         </section>
       </div>
     </div>
