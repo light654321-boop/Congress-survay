@@ -28,6 +28,35 @@ function getDeviceId() {
   }
 }
 
+// ارقام فارسی/عربی را لاتین می‌کند تا کد با هر کیبوردی درست تطبیق کند
+function toLatinDigits(str) {
+  return String(str || '')
+    .replace(/[۰-۹]/g, d => String(d.charCodeAt(0) - 0x06f0))
+    .replace(/[٠-٩]/g, d => String(d.charCodeAt(0) - 0x0660));
+}
+
+// اختلاف ساعت سرور با ساعت گوشی؛ اگر در دسترس نبود صفر
+async function getSkew() {
+  try {
+    const t0 = Date.now();
+    const { data, error } = await supabase.rpc('survey_server_now');
+    if (error || !data) return 0;
+    const t1 = Date.now();
+    return new Date(data).getTime() - (t0 + t1) / 2;
+  } catch (e) {
+    return 0;
+  }
+}
+
+// وضعیت ارائه: form | closed | notyet
+function stateOf(sess, skew) {
+  if (sess.is_open === false) return 'closed';
+  const now = Date.now() + (skew || 0);
+  if (sess.opens_at && now < new Date(sess.opens_at).getTime()) return 'notyet';
+  if (sess.closes_at && now >= new Date(sess.closes_at).getTime()) return 'closed';
+  return 'form';
+}
+
 const css = `
 .sv{--navy:#0E2A3B;--gold:#C8922B;--paper:#F7F4EE;--ink:#182226;--muted:#66767D;--line:#DDD6C7;--ok:#2E6E52;
   min-height:100vh;background:var(--paper);color:var(--ink);font-family:inherit;direction:rtl}
@@ -58,6 +87,7 @@ const css = `
 .sv-check{width:60px;height:60px;border-radius:50%;background:var(--ok);color:#fff;display:flex;
   align-items:center;justify-content:center;font-size:30px;margin:0 auto 18px}
 .sv-err{color:#B3402C;font-size:13px;margin-top:10px;text-align:center}
+.sv-code{width:100%;border:1px solid var(--line);border-radius:4px;padding:12px;font-family:inherit;font-size:20px;text-align:center;letter-spacing:6px;direction:ltr;background:#fff}
 .sv-retry{margin-top:16px;background:none;border:1px solid var(--navy);color:var(--navy);border-radius:4px;
   padding:10px 20px;font-family:inherit;font-size:14px;cursor:pointer}
 `;
@@ -74,6 +104,8 @@ export default function SurveyPage() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState(0);
+  const [code, setCode] = useState('');
+  const [skew, setSkew] = useState(0); // اختلاف ساعت سرور و گوشی (میلی‌ثانیه)
 
   useEffect(() => {
     if (!sessionId) return;
@@ -98,7 +130,7 @@ export default function SurveyPage() {
       try {
         const { data, error: err } = await supabase
           .from('survey_sessions')
-          .select('title, speaker, is_open')
+          .select('title, speaker, is_open, opens_at, closes_at, requires_code')
           .eq('id', sessionId)
           .maybeSingle();
         clearTimeout(slowTimer);
@@ -107,8 +139,10 @@ export default function SurveyPage() {
           setStatus('notfound');
           return;
         }
+        const sk = await getSkew();
+        setSkew(sk);
         setSession(data);
-        setStatus(data.is_open === false ? 'closed' : 'form');
+        setStatus(stateOf(data, sk));
       } catch (e3) {
         clearTimeout(slowTimer);
         if (!cancelled) setStatus('slow');
@@ -130,6 +164,10 @@ export default function SurveyPage() {
         return;
       }
     }
+    if (session && session.requires_code && !code.trim()) {
+      setError('کد نمایش‌داده‌شده روی اسلاید را وارد کنید.');
+      return;
+    }
     setSending(true);
     const { error: err } = await supabase.from('survey_responses').insert({
       session_id: sessionId,
@@ -139,6 +177,7 @@ export default function SurveyPage() {
       timing: answers.timing,
       suggestion: suggestion.trim().slice(0, 400) || null,
       device_id: getDeviceId(),
+      access_code: session && session.requires_code ? toLatinDigits(code.trim()) : null,
     });
     setSending(false);
     if (err) {
@@ -151,7 +190,24 @@ export default function SurveyPage() {
         return;
       }
       if (err.code === '42501') {
-        setStatus('closed');
+        // بسته شده، هنوز باز نشده، یا کد نادرست؟ وضعیت را دوباره از سرور بپرس
+        try {
+          const { data } = await supabase
+            .from('survey_sessions')
+            .select('title, speaker, is_open, opens_at, closes_at, requires_code')
+            .eq('id', sessionId)
+            .maybeSingle();
+          if (data) {
+            const sk = await getSkew();
+            const st = stateOf(data, sk);
+            if (st !== 'form') {
+              setSession(data);
+              setStatus(st);
+              return;
+            }
+          }
+        } catch (e5) {}
+        setError('کد واردشده نادرست است. کد را از روی اسلاید دوباره بخوانید.');
         return;
       }
       setError('ارسال با خطا مواجه شد. لطفاً دوباره تلاش کنید.');
@@ -202,6 +258,20 @@ export default function SurveyPage() {
             </div>
           )}
 
+          {status === 'notyet' && (
+            <div className="sv-state">
+              <h2>رأی‌گیری هنوز شروع نشده است</h2>
+              <p>
+                {session && session.opens_at
+                  ? 'شروع نظرسنجی این ارائه: ' +
+                    new Date(session.opens_at).toLocaleTimeString('fa-IR', { hour: '2-digit', minute: '2-digit' }) +
+                    '. پس از آن همین صفحه را دوباره باز کنید.'
+                  : 'کمی بعد دوباره تلاش کنید.'}
+              </p>
+              <button className="sv-retry" onClick={() => setAttempt(a => a + 1)}>بررسی دوباره</button>
+            </div>
+          )}
+
           {status === 'done' && (
             <div className="sv-state">
               <div className="sv-check">✓</div>
@@ -236,6 +306,21 @@ export default function SurveyPage() {
                   <div className="sv-legend"><span>{q.lo}</span><span>{q.hi}</span></div>
                 </div>
               ))}
+
+              {session && session.requires_code && (
+                <div className="sv-q">
+                  <h3>کد ارائه (روی اسلاید نوشته شده است)</h3>
+                  <input
+                    className="sv-code"
+                    inputMode="numeric"
+                    autoComplete="off"
+                    maxLength={12}
+                    value={code}
+                    onChange={e => setCode(e.target.value)}
+                    placeholder="مثلاً ۴۸۲۱"
+                  />
+                </div>
+              )}
 
               <div className="sv-q">
                 <h3>۵. نظر یا پیشنهاد شما برای بهبود این ارائه (اختیاری)</h3>

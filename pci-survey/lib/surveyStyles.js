@@ -57,6 +57,9 @@ export const adminCss = `
 .ad-qrbox{margin-top:14px;border:2px dashed var(--line);border-radius:4px;padding:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;min-height:90px;background:#fbfaf7}
 .ad-qrbox.on{border:2px solid var(--ok);background:#fff}
 .ad-qrbox img{width:220px;height:auto;border:1px solid var(--line);background:#fff}
+.ad select{margin-top:5px;width:100%;border:1px solid var(--line);border-radius:4px;padding:9px;font-family:inherit;font-size:14px;background:#fff}
+.ad-edit{width:100%;background:#fbfaf7;border:1px solid var(--line);border-radius:4px;padding:12px;margin-top:6px}
+.ad input[type=datetime-local]{margin-top:5px;width:100%;border:1px solid var(--line);border-radius:4px;padding:9px;font-family:inherit;font-size:14px;background:#fff}
 /* گزارش قابل چاپ / ذخیره PDF */
 .rp{max-width:800px;margin:0 auto;padding:18px 16px 60px;background:#fff;color:#111;direction:rtl;font-family:inherit}
 .rp h1{font-size:21px;margin:0 0 4px}

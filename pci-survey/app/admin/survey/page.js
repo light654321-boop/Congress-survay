@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import Link from 'next/link';
 import { supabase } from '../../../lib/supabaseClient';
 import { useSurveyAdmin } from '../../../lib/useSurveyAdmin';
 import { loadStructure } from '../../../lib/surveyData';
@@ -69,6 +70,9 @@ export default function SurveyManagePage() {
   const [panels, setPanels] = useState([]);
   const [sessions, setSessions] = useState([]);
   const [loadErr, setLoadErr] = useState('');
+  const [codes, setCodes] = useState({}); // { [sessionId]: code }
+  const [ed, setEd] = useState(null); // ویرایش مشخصات سخنرانی { id, panel_id, speaker, title, speaker_en, title_en }
+  const [edit, setEdit] = useState(null); // { id, opens, closes } زمان‌بندی در حال ویرایش
   const [text, setText] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // پیام بخش ۲ (QR، لینک، حذف…)
@@ -86,6 +90,13 @@ export default function SurveyManagePage() {
       setPanels(d.panels);
       setSessions(d.sessions);
       setLoadErr('');
+      // کدهای دسترسی (جدول 04 اجرا نشده باشد، فقط نادیده گرفته می‌شود)
+      const c = await supabase.from('survey_session_codes').select('session_id, code');
+      if (!c.error) {
+        const m = {};
+        (c.data || []).forEach(r => (m[r.session_id] = r.code));
+        setCodes(m);
+      }
     } catch (e) {
       setLoadErr('خواندن اطلاعات ناموفق بود: ' + (e.message || 'خطای نامشخص'));
     }
@@ -299,7 +310,7 @@ export default function SurveyManagePage() {
         session = data;
       }
 
-      const url = await buildPlain(session);
+      const url = await buildPlain(session, codes[session.id]);
       setOne({ session, url, existed });
       setOneMsg({
         type: 'ok',
@@ -446,10 +457,36 @@ export default function SurveyManagePage() {
   }
 
   // QR ساده برای اسلاید: فقط خود QR با حاشیهٔ سفید (نام سخنران و عنوان بعد از اسکن در فرم نمایش داده می‌شود)
-  async function buildPlain(s) {
+  async function buildPlain(s, code) {
     const mod = await import('qrcode');
     const QR = mod.default || mod;
-    return QR.toDataURL(linkFor(s.id), { width: 900, margin: 3, errorCorrectionLevel: 'M' });
+    const url = await QR.toDataURL(linkFor(s.id), { width: 900, margin: 3, errorCorrectionLevel: 'M' });
+    if (!code) return url;
+    // اگر ارائه «کد» دارد، کد زیر QR نوشته می‌شود تا سخنران همین یک تصویر را روی اسلاید بگذارد
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = url;
+    });
+    const c = document.createElement('canvas');
+    c.width = 900;
+    c.height = 1060;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, 900, 1060);
+    ctx.drawImage(img, 0, 0);
+    ctx.fillStyle = '#0E2A3B';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.direction = 'ltr';
+    const fam = (typeof getComputedStyle === 'function' && getComputedStyle(document.body).fontFamily) || 'Tahoma, Arial, sans-serif';
+    ctx.font = `700 120px ${fam}`;
+    ctx.fillText(code.split('').join(' '), 450, 960);
+    ctx.fillStyle = '#66767D';
+    ctx.font = `500 30px ${fam}`;
+    ctx.fillText('Code', 450, 1035);
+    return c.toDataURL('image/png');
   }
 
   async function toggleQr(s) {
@@ -462,7 +499,7 @@ export default function SurveyManagePage() {
       return;
     }
     try {
-      const url = await buildPlain(s);
+      const url = await buildPlain(s, codes[s.id]);
       setQr(q => ({ ...q, [s.id]: url }));
     } catch (e) {
       setMsg({ type: 'err', text: 'ساخت QR ناموفق بود. مطمئن شوید دستور npm install qrcode را اجرا کرده‌اید.' });
@@ -508,6 +545,131 @@ export default function SurveyManagePage() {
     if (!window.confirm(`همهٔ آرای ثبت‌شده برای «${s.title}» پاک شود؟ این کار برگشت‌پذیر نیست.`)) return;
     const { error } = await supabase.from('survey_responses').delete().eq('session_id', s.id);
     setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: 'آرای این سخنرانی پاک شد.' });
+  }
+
+  function openEd(s) {
+    setEd(e =>
+      e && e.id === s.id
+        ? null
+        : { id: s.id, panel_id: s.panel_id || '', speaker: s.speaker || '', title: s.title || '', speaker_en: s.speaker_en || '', title_en: s.title_en || '' }
+    );
+  }
+
+  async function saveEd() {
+    if (!ed) return;
+    if (!ed.speaker.trim() || !ed.title.trim()) {
+      setMsg({ type: 'err', text: 'نام سخنران و عنوان نمی‌تواند خالی باشد.' });
+      return;
+    }
+    const upd = {
+      speaker: ed.speaker.trim(),
+      title: ed.title.trim(),
+      speaker_en: ed.speaker_en.trim() || null,
+      title_en: ed.title_en.trim() || null,
+    };
+    if (ed.panel_id) upd.panel_id = ed.panel_id;
+    const { error } = await supabase.from('survey_sessions').update(upd).eq('id', ed.id);
+    if (error) {
+      setMsg({ type: 'err', text: 'ذخیره ناموفق بود: ' + error.message });
+      return;
+    }
+    setMsg({ type: 'ok', text: 'مشخصات سخنرانی ذخیره شد. آرای ثبت‌شده و QR تغییری نکرد.' });
+    setEd(null);
+    if (qr[ed.id]) setQr(q => ({ ...q, [ed.id]: undefined }));
+    await refresh();
+  }
+
+  async function renamePanel(p) {
+    const name = window.prompt('نام فارسی پنل:', p.name);
+    if (name === null) return;
+    const nameEn = window.prompt('نام انگلیسی پنل (برای PDF؛ می‌توانید خالی بگذارید):', p.name_en || '');
+    if (nameEn === null) return;
+    if (!name.trim()) {
+      setMsg({ type: 'err', text: 'نام پنل نمی‌تواند خالی باشد.' });
+      return;
+    }
+    const { error } = await supabase
+      .from('survey_panels')
+      .update({ name: name.trim(), name_en: nameEn.trim() || null })
+      .eq('id', p.id);
+    setMsg(error ? { type: 'err', text: error.message } : { type: 'ok', text: 'نام پنل ذخیره شد.' });
+    await refresh();
+  }
+
+  function toLocalInput(iso) {
+    if (!iso) return '';
+    const d = new Date(iso);
+    const pad = n => String(n).padStart(2, '0');
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + 'T' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+  }
+
+  function fmtTime(iso) {
+    return new Date(iso).toLocaleString('fa-IR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  }
+
+  function scheduleText(s) {
+    if (!s.opens_at && !s.closes_at) return '';
+    return (s.opens_at ? 'از ' + fmtTime(s.opens_at) : '') + (s.closes_at ? ' تا ' + fmtTime(s.closes_at) : '');
+  }
+
+  function openEdit(s) {
+    setEdit(e => (e && e.id === s.id ? null : { id: s.id, opens: toLocalInput(s.opens_at), closes: toLocalInput(s.closes_at) }));
+  }
+
+  async function saveSchedule(s) {
+    if (!edit) return;
+    const o = edit.opens ? new Date(edit.opens) : null;
+    const c = edit.closes ? new Date(edit.closes) : null;
+    if (o && c && c <= o) {
+      setMsg({ type: 'err', text: 'زمان پایان باید بعد از زمان شروع باشد.' });
+      return;
+    }
+    const { error } = await supabase
+      .from('survey_sessions')
+      .update({ opens_at: o ? o.toISOString() : null, closes_at: c ? c.toISOString() : null })
+      .eq('id', s.id);
+    if (error) {
+      setMsg({
+        type: 'err',
+        text: 'ذخیرهٔ زمان‌بندی ناموفق بود: ' + error.message + ' — اگر پیام دربارهٔ ستون opens_at است، فایل sql/04-survey-schedule-code.sql را اجرا کنید.',
+      });
+      return;
+    }
+    setMsg({ type: 'ok', text: 'زمان‌بندی ذخیره شد.' });
+    setEdit(null);
+    await refresh();
+  }
+
+  async function setCodeFor(s, on) {
+    try {
+      if (on) {
+        const code = String(Math.floor(1000 + Math.random() * 9000));
+        const a = await supabase.from('survey_session_codes').upsert({ session_id: s.id, code });
+        if (a.error) throw a.error;
+        const b = await supabase.from('survey_sessions').update({ requires_code: true }).eq('id', s.id);
+        if (b.error) throw b.error;
+        setCodes(c => ({ ...c, [s.id]: code }));
+        if (qr[s.id]) setQr(q => ({ ...q, [s.id]: undefined }));
+        setMsg({ type: 'ok', text: 'کد ' + code + ' فعال شد. QR را دوباره بسازید و دانلود کنید؛ کد زیر QR چاپ می‌شود.' });
+      } else {
+        const b = await supabase.from('survey_sessions').update({ requires_code: false }).eq('id', s.id);
+        if (b.error) throw b.error;
+        await supabase.from('survey_session_codes').delete().eq('session_id', s.id);
+        setCodes(c => {
+          const n = { ...c };
+          delete n[s.id];
+          return n;
+        });
+        if (qr[s.id]) setQr(q => ({ ...q, [s.id]: undefined }));
+        setMsg({ type: 'ok', text: 'کد برداشته شد.' });
+      }
+      await refresh();
+    } catch (e) {
+      setMsg({
+        type: 'err',
+        text: 'تنظیم کد ناموفق بود: ' + (e.message || '') + ' — فایل sql/04-survey-schedule-code.sql را اجرا کرده‌اید؟',
+      });
+    }
   }
 
   async function delSession(s) {
@@ -643,6 +805,9 @@ export default function SurveyManagePage() {
             «بستن رأی‌گیری» پس از پایان جلسه از ثبت رأی جدید جلوگیری می‌کند و جلوی رأی‌دادن دیرهنگام یا ساختگی را می‌گیرد.
           </p>
           <div className="ad-row" style={{ marginBottom: 12 }}>
+            <Link className="ad-btn sm" href="/admin/survey/qr-sheet" target="_blank" style={{ textDecoration: 'none' }}>
+              برگهٔ چاپی همهٔ QRها
+            </Link>
             <button className="ad-btn alt sm" onClick={() => setOpen(sessions.map(s => s.id), true)}>
               باز کردن رأی‌گیری همه
             </button>
@@ -664,6 +829,9 @@ export default function SurveyManagePage() {
                   <button className="ad-btn alt sm" onClick={() => setOpen(g.items.map(s => s.id), true)}>باز</button>
                   <button className="ad-btn alt sm" onClick={() => setOpen(g.items.map(s => s.id), false)}>بسته</button>
                   {g.panel.id !== 'none' && (
+                    <button className="ad-btn alt sm" onClick={() => renamePanel(g.panel)}>ویرایش نام</button>
+                  )}
+                  {g.panel.id !== 'none' && (
                     <button className="ad-btn danger sm" onClick={() => delPanel(g.panel)}>حذف پنل</button>
                   )}
                 </div>
@@ -677,6 +845,12 @@ export default function SurveyManagePage() {
                     <span className={'ad-badge ' + (s.is_open === false ? 'closed' : 'open')}>
                       {s.is_open === false ? 'رأی‌گیری بسته' : 'رأی‌گیری باز'}
                     </span>
+                    {scheduleText(s) && (
+                      <span className="ad-badge">⏱ {scheduleText(s)}</span>
+                    )}
+                    {s.requires_code && codes[s.id] && (
+                      <span className="ad-badge">کد: {codes[s.id]}</span>
+                    )}
                   </div>
                   <div className="ad-row" style={{ margin: 0 }}>
                     <button className="ad-btn sm" onClick={() => toggleQr(s)}>{qr[s.id] ? 'پنهان کردن QR' : 'QR'}</button>
@@ -684,9 +858,88 @@ export default function SurveyManagePage() {
                     <button className="ad-btn alt sm" onClick={() => setOpen([s.id], s.is_open === false)}>
                       {s.is_open === false ? 'باز کردن' : 'بستن'}
                     </button>
+                    <button className="ad-btn alt sm" onClick={() => openEd(s)}>ویرایش</button>
+                    <button className="ad-btn alt sm" onClick={() => openEdit(s)}>زمان و کد</button>
                     <button className="ad-btn danger sm" onClick={() => clearVotes(s)}>پاک کردن آرا</button>
                     <button className="ad-btn danger sm" onClick={() => delSession(s)}>حذف</button>
                   </div>
+                  {ed && ed.id === s.id && (
+                    <div className="ad-edit">
+                      <div className="ad-form">
+                        <label>
+                          نام سخنران
+                          <input type="text" value={ed.speaker} onChange={e => setEd({ ...ed, speaker: e.target.value })} />
+                        </label>
+                        <label>
+                          عنوان سخنرانی
+                          <input type="text" value={ed.title} onChange={e => setEd({ ...ed, title: e.target.value })} />
+                        </label>
+                        <label>
+                          پنل
+                          <select value={ed.panel_id} onChange={e => setEd({ ...ed, panel_id: e.target.value })}>
+                            {!panels.some(p => p.id === ed.panel_id) && <option value="">— بدون پنل —</option>}
+                            {panels.map(p => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </div>
+                      <div className="ad-form" dir="ltr" style={{ marginTop: 10 }}>
+                        <label>
+                          Speaker name (PDF)
+                          <input type="text" value={ed.speaker_en} onChange={e => setEd({ ...ed, speaker_en: e.target.value })} />
+                        </label>
+                        <label>
+                          Talk title (PDF)
+                          <input type="text" value={ed.title_en} onChange={e => setEd({ ...ed, title_en: e.target.value })} />
+                        </label>
+                      </div>
+                      <p className="ad-note">لینک و QR همین سخنرانی تغییر نمی‌کند، پس QRهای قبلاً داده‌شده معتبر می‌مانند.</p>
+                      <div className="ad-row">
+                        <button className="ad-btn sm" onClick={saveEd}>ذخیره</button>
+                        <button className="ad-btn alt sm" onClick={() => setEd(null)}>انصراف</button>
+                      </div>
+                    </div>
+                  )}
+                  {edit && edit.id === s.id && (
+                    <div className="ad-edit">
+                      <div className="ad-form">
+                        <label>
+                          شروع رأی‌گیری (اختیاری)
+                          <input type="datetime-local" value={edit.opens} onChange={e => setEdit({ ...edit, opens: e.target.value })} />
+                        </label>
+                        <label>
+                          پایان رأی‌گیری (اختیاری)
+                          <input type="datetime-local" value={edit.closes} onChange={e => setEdit({ ...edit, closes: e.target.value })} />
+                        </label>
+                      </div>
+                      <p className="ad-note">
+                        خارج از این بازه، سیستم رأی نمی‌پذیرد (حتی اگر کسی لینک را داشته باشد). زمان‌ها به ساعت همین کامپیوتر است. خالی بگذارید تا محدودیت زمانی نباشد؛ دکمهٔ «بستن» دستی همچنان کار می‌کند.
+                      </p>
+                      <div className="ad-row">
+                        <button className="ad-btn sm" onClick={() => saveSchedule(s)}>ذخیرهٔ زمان‌بندی</button>
+                        <button className="ad-btn alt sm" onClick={() => setEdit(null)}>انصراف</button>
+                      </div>
+                      <hr style={{ border: 0, borderTop: '1px solid var(--line)', margin: '12px 0' }} />
+                      <p className="ad-note">
+                        <b>کد دسترسی (اختیاری):</b> با فعال شدن، رأی‌دهنده باید کد ۴ رقمی را هم وارد کند. کد زیر تصویر QR چاپ می‌شود.
+                        این کار جلوی رأی از کسانی را می‌گیرد که فقط لینک را از دیگران گرفته‌اند؛ ولی کسی که عکس اسلاید را داشته باشد کد را هم دارد.
+                      </p>
+                      <div className="ad-row">
+                        {s.requires_code ? (
+                          <>
+                            <span className="ad-badge open">کد فعال: {codes[s.id] || '—'}</span>
+                            <button className="ad-btn alt sm" onClick={() => setCodeFor(s, true)}>کد جدید</button>
+                            <button className="ad-btn danger sm" onClick={() => setCodeFor(s, false)}>برداشتن کد</button>
+                          </>
+                        ) : (
+                          <button className="ad-btn alt sm" onClick={() => setCodeFor(s, true)}>فعال کردن کد</button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {qr[s.id] && (
                     <div className="ad-qr">
                       {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSurveyAdmin } from '../../../../lib/useSurveyAdmin';
-import { loadStructure, loadStats, buildRanking, topSessions } from '../../../../lib/surveyData';
+import { loadStructure, loadStats, buildRanking, topSessions, fetchAllVotes } from '../../../../lib/surveyData';
+import { downloadCsv } from '../../../../lib/surveyCsv';
 import { CRITERIA, MIN_VOTES, CONGRESS_TITLE, fa, faScore, fmtDateTime } from '../../../../lib/surveyConfig';
 import { adminCss } from '../../../../lib/surveyStyles';
 import SurveyNav from '../../../../lib/SurveyNav';
@@ -21,6 +22,7 @@ export default function SurveyResultsPage() {
   const [data, setData] = useState(null); // { groups, rankable, top, totalVotes, sessionCount }
   const [err, setErr] = useState('');
   const [updatedAt, setUpdatedAt] = useState(null);
+  const [exporting, setExporting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -69,6 +71,48 @@ export default function SurveyResultsPage() {
     );
   }
 
+  const stamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+
+  function exportSummary() {
+    const rows = [
+      ['Panel', 'Panel rank', 'Speaker', 'Title', 'Votes', ...CRITERIA.map(c => c.labelEn || c.key), 'Overall', 'First vote', 'Last vote'],
+    ];
+    for (const g of data.groups) {
+      for (const x of g.sessions) {
+        rows.push([
+          g.name,
+          g.rank || '',
+          x.speaker,
+          x.title,
+          x.stats.votes,
+          ...CRITERIA.map(c => (x.stats.avgs[c.key] === null || x.stats.avgs[c.key] === undefined ? '' : x.stats.avgs[c.key].toFixed(2))),
+          x.stats.overall === null || x.stats.overall === undefined ? '' : x.stats.overall.toFixed(2),
+          x.stats.firstVote || '',
+          x.stats.lastVote || '',
+        ]);
+      }
+    }
+    downloadCsv('survey-summary-' + stamp() + '.csv', rows);
+  }
+
+  async function exportVotes() {
+    setExporting(true);
+    try {
+      const info = {};
+      data.groups.forEach(g => g.sessions.forEach(x => (info[x.id] = { panel: g.name, speaker: x.speaker, title: x.title })));
+      const votes = await fetchAllVotes(Object.keys(info));
+      const rows = [['Time', 'Panel', 'Speaker', 'Title', ...CRITERIA.map(c => c.labelEn || c.key), 'Comment']];
+      votes.forEach(v => {
+        const i = info[v.session_id] || {};
+        rows.push([v.created_at, i.panel, i.speaker, i.title, ...CRITERIA.map(c => v[c.key]), v.suggestion || '']);
+      });
+      downloadCsv('survey-all-votes-' + stamp() + '.csv', rows);
+    } catch (e) {
+      setErr('خروجی ناموفق بود: ' + (e.message || ''));
+    }
+    setExporting(false);
+  }
+
   const unranked = data ? data.groups.filter(g => g.rank === null) : [];
 
   return (
@@ -94,9 +138,17 @@ export default function SurveyResultsPage() {
                 <div>
                   <b>{fa(data.totalVotes)}</b> رأی ثبت‌شده در <b>{fa(data.sessionCount)}</b> سخنرانی و <b>{fa(data.panelCount)}</b> پنل
                 </div>
-                <Link className="ad-btn" href="/admin/survey/report/final/all" target="_blank">
-                  گزارش نهایی کنگره (PDF)
-                </Link>
+                <div className="ad-row" style={{ margin: 0 }}>
+                  <Link className="ad-btn" href="/admin/survey/report/final/all" target="_blank">
+                    گزارش نهایی کنگره (PDF)
+                  </Link>
+                  <button className="ad-btn alt" onClick={exportSummary}>
+                    خروجی Excel: خلاصه سخنرانی‌ها
+                  </button>
+                  <button className="ad-btn alt" disabled={exporting} onClick={exportVotes}>
+                    {exporting ? 'در حال آماده‌سازی…' : 'خروجی Excel: همهٔ آرا'}
+                  </button>
+                </div>
               </div>
               <p className="ad-note">
                 روش محاسبه: امتیاز هر سخنرانی میانگین وزنی شاخص‌هاست (وزن‌ها در فایل lib/surveyConfig.js). امتیاز هر پنل میانگین امتیاز
