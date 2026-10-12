@@ -5,6 +5,7 @@ const SECTIONS = [
   {
     title: 'ارزیابی داوران',
     items: [
+      { href: '/admin/presentation-talks', label: 'ثبت سخنرانی و تعیین داور', hint: 'نام سخنران و موضوع را وارد کنید، داوران را انتخاب کنید و برایشان ارسال می‌شود', tone: 'navy' },
       { href: '/admin/presentation-results', label: 'نتایج ارزیابی سخنرانی توسط داوران', hint: 'نمرات هر داور، میانگین و رتبه‌بندی سخنرانی‌ها', tone: 'navy' },
     ],
   },

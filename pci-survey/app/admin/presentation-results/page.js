@@ -43,7 +43,7 @@ export default function PresentationResultsPage() {
 
   const load = useCallback(async () => {
     try {
-      const [papers, reviews, profs] = await Promise.all([
+      const [papers, reviews, profs, talks, talkReviews] = await Promise.all([
         fetchAll(() =>
           supabase
             .from('papers')
@@ -55,20 +55,53 @@ export default function PresentationResultsPage() {
           supabase.from('presentation_reviews').select('paper_id, reviewer_id, slot, scores, total, submitted_at').order('paper_id').order('slot')
         ),
         fetchAll(() => supabase.from('profiles').select('id, name').order('id')),
+        fetchAll(() => supabase.from('pres_talks').select('*').order('created_at', { ascending: true }).order('id', { ascending: true })),
+        fetchAll(() =>
+          supabase.from('pres_talk_reviews').select('talk_id, reviewer_id, slot, scores, total, submitted_at').order('talk_id').order('slot')
+        ),
       ]);
       const nameOf = {};
       profs.forEach(p => (nameOf[p.id] = p.name));
-      const bySlot = {};
+
+      const paperBySlot = {};
       reviews.forEach(r => {
-        bySlot[r.paper_id] = bySlot[r.paper_id] || {};
-        bySlot[r.paper_id][r.slot] = r;
+        paperBySlot[r.paper_id] = paperBySlot[r.paper_id] || {};
+        paperBySlot[r.paper_id][r.slot] = r;
+      });
+      const talkBySlot = {};
+      talkReviews.forEach(r => {
+        talkBySlot[r.talk_id] = talkBySlot[r.talk_id] || {};
+        talkBySlot[r.talk_id][r.slot] = r;
       });
 
+      // هر آیتم (مقالهٔ دارای داور ارائه، یا سخنرانی ثبت‌شده توسط ادمین) به یک ساختار یکسان تبدیل می‌شود
+      const items = [];
+      papers.forEach(p =>
+        items.push({
+          id: p.id,
+          kind: 'paper',
+          title: p.title,
+          speaker: '',
+          reviewerIds: [p.pres_reviewer1, p.pres_reviewer2, p.pres_reviewer3],
+          bySlot: paperBySlot[p.id] || {},
+        })
+      );
+      talks.forEach(t =>
+        items.push({
+          id: t.id,
+          kind: 'talk',
+          title: t.title,
+          speaker: t.speaker,
+          reviewerIds: [t.pres_reviewer1, t.pres_reviewer2, t.pres_reviewer3],
+          bySlot: talkBySlot[t.id] || {},
+        })
+      );
+
       const rows = [];
-      for (const p of papers) {
+      for (const it of items) {
         const slots = [1, 2, 3].map(n => {
-          const reviewerId = p['pres_reviewer' + n];
-          const r = (bySlot[p.id] || {})[n] || null;
+          const reviewerId = it.reviewerIds[n - 1];
+          const r = it.bySlot[n] || null;
           return {
             slot: n,
             reviewerId,
@@ -93,7 +126,20 @@ export default function PresentationResultsPage() {
         }
         // «نهایی» یعنی دست‌کم دو نمره، و اختلاف حل‌نشده‌ای نباشد
         const final = done.length >= 2 && !needsThird;
-        rows.push({ id: p.id, title: p.title, slots, assigned, doneCount: done.length, avg, diff, needsThird, critAvg, final });
+        rows.push({
+          id: it.id,
+          kind: it.kind,
+          title: it.title,
+          speaker: it.speaker,
+          slots,
+          assigned,
+          doneCount: done.length,
+          avg,
+          diff,
+          needsThird,
+          critAvg,
+          final,
+        });
       }
 
       const ranked = rows.filter(r => r.final).sort((a, b) => b.avg - a.avg || b.doneCount - a.doneCount);
@@ -112,7 +158,7 @@ export default function PresentationResultsPage() {
       setUpdatedAt(new Date());
       setErr('');
     } catch (e) {
-      setErr('دریافت نتایج ناموفق بود: ' + (e.message || 'خطای نامشخص'));
+      setErr('دریافت نتایج ناموفق بود: ' + (e.message || 'خطای نامشخص') + ' — اگر پیام دربارهٔ pres_talks است، فایل sql/05-talks.sql را اجرا کنید.');
     }
   }, []);
 
@@ -124,14 +170,14 @@ export default function PresentationResultsPage() {
   }, [access, load]);
 
   function exportCsv() {
-    const head = ['Rank', 'Title', 'Average', 'Reviews done', 'Status'];
+    const head = ['Rank', 'Speaker', 'Title', 'Average', 'Reviews done', 'Status'];
     PRESENTATION_CRITERIA.forEach(c => head.push('Mean ' + c.id + ' (max ' + c.max + ')'));
     [1, 2, 3].forEach(n => head.push('Reviewer ' + n, 'Reviewer ' + n + ' total'));
     PRESENTATION_CRITERIA.forEach(c => [1, 2, 3].forEach(n => head.push('R' + n + ' ' + c.id)));
     const rows = [head];
     data.rows.forEach(r => {
       const status = r.final ? 'final' : r.needsThird ? 'needs third reviewer' : 'in progress';
-      const line = [r.rank || '', r.title, r.avg === null ? '' : r.avg.toFixed(2), r.doneCount, status];
+      const line = [r.rank || '', r.speaker || '', r.title, r.avg === null ? '' : r.avg.toFixed(2), r.doneCount, status];
       PRESENTATION_CRITERIA.forEach(c => line.push(r.critAvg[c.id] === null ? '' : r.critAvg[c.id].toFixed(2)));
       r.slots.forEach(s => line.push(s.name || '', s.total === null ? '' : s.total));
       PRESENTATION_CRITERIA.forEach(c => r.slots.forEach(s => line.push(s.review ? (s.review.scores || {})[c.id] ?? '' : '')));
@@ -166,6 +212,7 @@ export default function PresentationResultsPage() {
         </p>
         <div className="ad-nav no-print">
           <Link href="/admin">بازگشت به پنل ادمین</Link>
+          <Link href="/admin/presentation-talks">ثبت سخنرانی و تعیین داور</Link>
           <Link href="/admin/presentation-results" className="on">نتایج ارزیابی سخنرانی (داوران)</Link>
           <Link href="/admin/survey/results">نتایج نظرسنجی حاضرین</Link>
         </div>
@@ -272,7 +319,10 @@ function Row({ r, open, toggle, pending }) {
             <Medal rank={r.rank} />
           </td>
         )}
-        <td>{r.title}</td>
+        <td>
+          {r.title}
+          {r.speaker && <div className="ad-note" style={{ margin: 0 }}>{r.speaker}</div>}
+        </td>
         {r.slots.map(s => (
           <td className="num" key={s.slot} title={s.name || ''}>
             {cell(s)}
@@ -286,7 +336,14 @@ function Row({ r, open, toggle, pending }) {
           </td>
         )}
         <td>
-          <button className="ad-btn alt sm" onClick={toggle}>{open ? 'بستن' : 'جزئیات'}</button>
+          <div className="ad-row" style={{ margin: 0 }}>
+            <button className="ad-btn alt sm" onClick={toggle}>{open ? 'بستن' : 'جزئیات'}</button>
+            {r.kind === 'talk' && (
+              <Link className="ad-btn alt sm" href={'/talk-report/' + r.id} target="_blank" style={{ textDecoration: 'none' }}>
+                PDF
+              </Link>
+            )}
+          </div>
         </td>
       </tr>
       {open && (
