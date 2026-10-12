@@ -73,6 +73,11 @@ export default function SurveyManagePage() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // {type:'ok'|'err', text}
   const [qr, setQr] = useState({}); // { [sessionId]: dataUrl }
+  const emptyForm = { panel: '', speaker: '', title: '', panel_en: '', speaker_en: '', title_en: '' };
+  const [form, setForm] = useState(emptyForm);
+  const [one, setOne] = useState(null); // { session, url, existed } بعد از ثبت تکی
+  const [oneBusy, setOneBusy] = useState(false);
+  const [oneMsg, setOneMsg] = useState(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -223,6 +228,110 @@ export default function SurveyManagePage() {
       });
     }
     setBusy(false);
+  }
+
+  const formReady = form.panel.trim() && form.speaker.trim() && form.title.trim();
+
+  function setField(k, v) {
+    setForm(f => ({ ...f, [k]: v }));
+    setOne(null); // با تغییر فیلدها QR قبلی کنار می‌رود
+    setOneMsg(null);
+  }
+
+  async function addOne() {
+    if (!formReady) return;
+    setOneBusy(true);
+    setOneMsg(null);
+    try {
+      const f = {
+        panel: form.panel.trim(),
+        speaker: form.speaker.trim(),
+        title: form.title.trim(),
+        panel_en: form.panel_en.trim(),
+        speaker_en: form.speaker_en.trim(),
+        title_en: form.title_en.trim(),
+      };
+      const cur = await loadStructure();
+      let panel = cur.panels.find(p => normalizeName(p.name) === normalizeName(f.panel));
+      if (!panel) {
+        const maxPanelOrder = cur.panels.reduce((m, p) => Math.max(m, p.sort_order || 0), 0);
+        const { data, error } = await supabase
+          .from('survey_panels')
+          .insert({ name: f.panel, name_en: f.panel_en || null, sort_order: maxPanelOrder + 1 })
+          .select()
+          .single();
+        if (error) throw error;
+        panel = data;
+      } else if (f.panel_en && !panel.name_en) {
+        await supabase.from('survey_panels').update({ name_en: f.panel_en }).eq('id', panel.id);
+      }
+
+      let session = cur.sessions.find(
+        s =>
+          s.panel_id === panel.id &&
+          normalizeName(s.speaker) === normalizeName(f.speaker) &&
+          normalizeName(s.title) === normalizeName(f.title)
+      );
+      const existed = !!session;
+      if (session) {
+        if (f.speaker_en || f.title_en) {
+          await supabase
+            .from('survey_sessions')
+            .update({ speaker_en: f.speaker_en || session.speaker_en || null, title_en: f.title_en || session.title_en || null })
+            .eq('id', session.id);
+        }
+      } else {
+        const maxOrder = cur.sessions.filter(s => s.panel_id === panel.id).reduce((m, s) => Math.max(m, s.sort_order || 0), 0);
+        const { data, error } = await supabase
+          .from('survey_sessions')
+          .insert({
+            panel_id: panel.id,
+            speaker: f.speaker,
+            title: f.title,
+            speaker_en: f.speaker_en || null,
+            title_en: f.title_en || null,
+            sort_order: maxOrder + 1,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        session = data;
+      }
+
+      const url = await buildPlain(session);
+      setOne({ session, url, existed });
+      setOneMsg({
+        type: 'ok',
+        text: existed
+          ? 'این سخنرانی از قبل ثبت شده بود؛ همان QR نمایش داده شد.'
+          : 'ثبت شد. QR آمادهٔ دانلود است.',
+      });
+      await refresh();
+    } catch (e) {
+      setOneMsg({
+        type: 'err',
+        text:
+          'ثبت ناموفق بود: ' +
+          (e.message || 'خطای نامشخص') +
+          ' — اگر پیام دربارهٔ ستون name_en/speaker_en است، فایل sql/03-survey-english.sql را اجرا کنید؛ اگر دربارهٔ qrcode است، npm install qrcode را اجرا کنید.',
+      });
+    }
+    setOneBusy(false);
+  }
+
+  function downloadOne() {
+    if (!one) return;
+    const a = document.createElement('a');
+    a.href = one.url;
+    a.download = 'QR-' + (one.session.speaker || 'session').replace(/[\\/:*?"<>|]/g, ' ').trim() + '.png';
+    a.click();
+  }
+
+  function newOne() {
+    // سخنرانی بعدی از همان پنل: نام پنل می‌ماند، بقیه پاک می‌شود
+    setForm(f => ({ ...emptyForm, panel: f.panel, panel_en: f.panel_en }));
+    setOne(null);
+    setOneMsg(null);
   }
 
   function linkFor(id) {
@@ -449,7 +558,83 @@ export default function SurveyManagePage() {
 
       <div className="ad-wrap">
         <section className="ad-panel">
-          <h2>۱. بارگذاری پنل‌ها، سخنرانان و عناوین</h2>
+          <h2>۱. افزودن یک سخنرانی و دریافت QR</h2>
+          <p className="ad-note">
+            نام پنل، نام سخنران و عنوان سخنرانی را در کادرهای جدا بنویسید. وقتی هر سه پر شد، دکمهٔ ثبت فعال می‌شود و بعد از ثبت، QR برای دانلود ظاهر می‌شود.
+            نام پنل را می‌توانید از فهرست پنل‌های موجود انتخاب کنید یا پنل جدید بنویسید.
+          </p>
+          <div className="ad-form">
+            <label>
+              نام پنل *
+              <input type="text" list="survey-panel-list" value={form.panel} onChange={e => setField('panel', e.target.value)} placeholder="مثلاً پنل زانو" />
+              <datalist id="survey-panel-list">
+                {panels.map(p => (
+                  <option key={p.id} value={p.name} />
+                ))}
+              </datalist>
+            </label>
+            <label>
+              نام سخنران *
+              <input type="text" value={form.speaker} onChange={e => setField('speaker', e.target.value)} placeholder="مثلاً دکتر الف" />
+            </label>
+            <label>
+              عنوان سخنرانی *
+              <input type="text" value={form.title} onChange={e => setField('title', e.target.value)} placeholder="موضوع ارائه" />
+            </label>
+          </div>
+          <details className="ad-note" style={{ marginTop: 10 }}>
+            <summary style={{ cursor: 'pointer' }}>نام‌های انگلیسی برای PDF (اختیاری)</summary>
+            <div className="ad-form" dir="ltr" style={{ marginTop: 8 }}>
+              <label>
+                Panel name
+                <input type="text" value={form.panel_en} onChange={e => setField('panel_en', e.target.value)} />
+              </label>
+              <label>
+                Speaker name
+                <input type="text" value={form.speaker_en} onChange={e => setField('speaker_en', e.target.value)} />
+              </label>
+              <label>
+                Talk title
+                <input type="text" value={form.title_en} onChange={e => setField('title_en', e.target.value)} />
+              </label>
+            </div>
+          </details>
+          <div className="ad-row">
+            <button className="ad-btn" disabled={!formReady || oneBusy} onClick={addOne}>
+              {oneBusy ? 'در حال ثبت…' : 'ثبت و ساخت QR'}
+            </button>
+            {(form.speaker || form.title) && (
+              <button className="ad-btn alt" onClick={newOne}>
+                سخنرانی بعدی (همین پنل)
+              </button>
+            )}
+          </div>
+          <div className={'ad-qrbox' + (one ? ' on' : '')}>
+            {one ? (
+              <>
+                <img src={one.url} alt="QR" />
+                <div>
+                  <b>{one.session.title}</b>
+                  <div className="ad-note">{one.session.speaker}</div>
+                  <div className="ad-row">
+                    <button className="ad-btn" onClick={downloadOne}>
+                      دانلود QR برای اسلاید
+                    </button>
+                    <button className="ad-btn alt" onClick={() => copyLink(one.session)}>
+                      کپی لینک
+                    </button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <span className="ad-note">محل نمایش QR — بعد از پر کردن هر سه کادر و زدن «ثبت و ساخت QR» فعال می‌شود.</span>
+            )}
+          </div>
+          {oneMsg && <div className={'ad-msg ' + oneMsg.type}>{oneMsg.text}</div>}
+        </section>
+
+        <section className="ad-panel">
+          <h2>۲. بارگذاری گروهی (از اکسل) — برای تعداد زیاد</h2>
           <p className="ad-note">
             هر سطر یک سخنرانی است با سه ستون به ترتیب: <b>نام پنل | نام سخنران | عنوان سخنرانی</b>.
             جدول را از اکسل کپی و اینجا Paste کنید، یا فایل CSV بدهید. ردیف عنوان ستون‌ها (که اولین خانه‌اش «پنل» است) اختیاری است.
@@ -515,7 +700,7 @@ export default function SurveyManagePage() {
         </section>
 
         <section className="ad-panel">
-          <h2>۲. پنل‌ها، سخنرانی‌ها و QR</h2>
+          <h2>۳. پنل‌ها، سخنرانی‌ها و QR</h2>
           <p className="ad-note">
             برای هر سخنرانی یک QR جداگانه ساخته می‌شود؛ سخنران فقط همین QR را در آخرین اسلاید می‌گذارد. بعد از اسکن، نام سخنران و عنوان سخنرانی بالای فرم نمایش داده می‌شود. (کارت دارای نام و عنوان هم اختیاری است.)
             «بستن رأی‌گیری» پس از پایان جلسه از ثبت رأی جدید جلوگیری می‌کند و جلوی رأی‌دادن دیرهنگام یا ساختگی را می‌گیرد.

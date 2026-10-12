@@ -51,6 +51,12 @@ export const adminCss = `
 .ad-bar>i{display:block;height:100%;background:var(--navy)}
 .ad-state{text-align:center;padding:80px 24px;color:var(--muted)}
 
+.ad-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.ad-form label{display:block;font-size:13px;font-weight:600}
+.ad-form input[type=text]{margin-top:5px;font-weight:400}
+.ad-qrbox{margin-top:14px;border:2px dashed var(--line);border-radius:4px;padding:16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;min-height:90px;background:#fbfaf7}
+.ad-qrbox.on{border:2px solid var(--ok);background:#fff}
+.ad-qrbox img{width:220px;height:auto;border:1px solid var(--line);background:#fff}
 /* گزارش قابل چاپ / ذخیره PDF */
 .rp{max-width:800px;margin:0 auto;padding:18px 16px 60px;background:#fff;color:#111;direction:rtl;font-family:inherit}
 .rp h1{font-size:21px;margin:0 0 4px}
